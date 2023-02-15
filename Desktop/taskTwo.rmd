@@ -1,0 +1,706 @@
+---
+title: "Bad Debt Expense"
+author: "Estela Bobadilla-Cruz"
+date: "2023-01-05"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+
+#knitr::opts_chunk$set(echo = TRUE)
+library(janitor)
+library(tidyverse)
+library(tidyr)
+library(readxl)
+library(RColorBrewer)
+library(ggplot2)
+library(dplyr)
+library(scales)
+#library(ggfortify) #package load: 
+```
+
+```{r, include=FALSE}
+
+#----Section: Preprocessing. IMPORTANT NOTE: ACTION REQUIRED BY USER --- 
+# User Task: Assigning Values to Variables. MUST CHANGE BASED ON USER NEEDS
+
+#Variable 'dir' is a path to the files we wish to open. Datatype = string
+dir = "HDC_Files"
+
+#Variable 'periodyear' will serve as our desired period year. Datatype = integer
+periodyear = 2021
+
+#Variable 'active_projects'. Datatype = Boolean
+active_projects = TRUE
+
+# Q: For graphing sections below, user can also alter graph interval values, i.e. if user wishes to view the Histogram of projects with positive bad debt expense (bde) values between 0 up to 2000, then they can alter max bde value. 
+
+# Histogram of Bad Debt Expense Per Unit: max bde value. Datatype = integer
+bdeMax = 2000
+
+#percentile points func, get max value, 95/99th percentile as sub, get diff b/w max & perc.val
+
+```
+
+
+```{r, include=FALSE}
+#------Section: Opening Files----
+# main financial statement file, 1637 observations 
+mainFinancialSt = read_excel(file.path(dir, "Financials for analysis 2019-2022 as of 10-17-2022.xls")) 
+
+#bad debt expense data, 1309 observations 
+badDebtEx= read_excel(file.path(dir, "Bad debt expense as of 10-7-2022.xls"))
+
+#main project attribute table, 2223 observations
+projects_attributes = readRDS(file.path(dir,"project_attributes_SLIM_2022-09-15.rds"))
+
+```
+
+```{r, include=FALSE}
+#-----Section: Filtering/Cleaning Dataframes------
+
+#Main Financial Staement df: Make sure DSCR1 and DSCR2 are imported with at least two places 
+mainFinancialSt$DSCR1 <- round(mainFinancialSt$DSCR1, 2)
+mainFinancialSt$DSCR2 <- round(mainFinancialSt$DSCR2, 2)
+
+#Filter both the financial statement and bad debt df to period year 
+
+#518 observations
+mainFinancialSt = filter(mainFinancialSt, PERIOD_YEAR == periodyear)
+
+#433 observations
+badDebtEx = filter(badDebtEx, PERIOD_YEAR == periodyear)
+#print(colnames(df_projects))
+
+#Filter Active projects in projects attr df
+#828 observations 
+projects_attributes = filter(projects_attributes, am_flag == active_projects)
+```
+
+
+```{r, include=FALSE}
+#Check duplicates in financial statements and bad debt data
+
+#print(nrow(mainFinancialSt))
+#print(nrow(badDebtEx))
+#print("-before-")
+
+#511 observations, 7 duplicates
+mainFinancialSt = mainFinancialSt[!duplicated(mainFinancialSt$PROJ_NAME),]
+#433 observations
+badDebtEx = badDebtEx[!duplicated(badDebtEx$PROJ_NAME),]
+
+#nrow(mainFinancialSt)
+#nrow(badDebtEx)
+#print("after-")
+```
+
+```{r, include=FALSE}
+
+#Filter projects that appear in all three dfs only
+
+#First, make sure project name column is the same across all dfs because of case sensitivity 
+colnames(projects_attributes)[colnames(projects_attributes) == "project_name"] = "PROJ_NAME"
+
+#Clearly define bad debt expense column
+colnames(badDebtEx)[colnames(badDebtEx) == "ACCT_VALUE"] = "bad_debt_ex"
+```
+
+```{r, include=FALSE}
+#Checking Columns
+#colnames(mainFinancialSt)
+#--------------------------
+#colnames(projects_attributes)
+#--------------------------
+#colnames(badDebtEx)
+
+```
+
+```{r, include=FALSE}
+#Filter necessary columns, avoid duplicates
+badDebtEx <- select(badDebtEx, PROJ_NAME, bad_debt_ex)
+#project number column available in main financial statement 
+projects_attributes <- subset(projects_attributes, select = -c(project))
+```
+
+```{r, include=FALSE}
+#Inner join between financial statement, bad debt data and project project attributes
+joinedData <- list(mainFinancialSt, badDebtEx, projects_attributes) %>% reduce(inner_join, by = 'PROJ_NAME')
+#colnames(joinedData)
+```
+
+```{r, include=FALSE}
+#----Section: Dataframe Manipulation Prep: Null/NA Values----
+#Check if altering Null values to 0 will impact our data.
+
+
+#Columns to check: RENT_REV_GROSS, TENANT_ASSIST_PYMT, VACANCIES_APARTS, RENT_REV_ST_COMM, VACANCIES_ST_COMM
+
+#checkZeros = filter(joinedData, VACANCIES_APARTS == 0)
+
+#Note: There are no zero values in our columns, thus changing NA values to zero and back to NA does not impact our data
+```
+
+```{r, include=FALSE}
+#Set NA values to zero for the sake of calculations, must revert to NA for graphs
+joinedData$RENT_REV_GROSS[is.na(joinedData$RENT_REV_GROSS)] <- 0
+joinedData$TENANT_ASSIST_PYMT[is.na(joinedData$TENANT_ASSIST_PYMT)] <- 0
+joinedData$VACANCIES_APARTS[is.na(joinedData$VACANCIES_APARTS)] <- 0
+
+joinedData$RENT_REV_ST_COMM[is.na(joinedData$RENT_REV_ST_COMM)] <- 0
+joinedData$VACANCIES_ST_COMM[is.na(joinedData$VACANCIES_ST_COMM)] <- 0
+```
+
+
+
+```{r, include=FALSE}
+#----Section: New Data Fields---
+#Calculating New Fields: Effective Residential Gross Rent, Effective Nonresidential Gross Rent, Effective Gross Rent
+
+#1. Effective residential gross rent = RENT_REV_GROSS + TENANT_ASSIST_PYMT + VACANCIES_APARTS
+joinedData$EFF_RES_GRENT = joinedData$RENT_REV_GROSS + joinedData$TENANT_ASSIST_PYMT + joinedData$VACANCIES_APARTS
+
+#2. Effective nonresidential gross rent = RENT_REV_ST_COMM + VACANCIES_ST_COMM
+joinedData$EFF_NONRES_GRENT = joinedData$RENT_REV_ST_COMM + joinedData$VACANCIES_ST_COMM
+
+#3. Effective gross rent = effective residential GR + effective nonresidential GR
+joinedData$EFF_GROSSRENT = joinedData$EFF_RES_GRENT + joinedData$EFF_NONRES_GRENT
+```
+
+```{r, include=FALSE}
+#----Section: Normalizing by Unit Count---- 
+#Use units column from project attributes df 'units'
+
+#RENT_REV_GROSS:TOTAL_VACANCIES, TOTAL_REVENUE, Effective Residential Gross Rent, Effective Nonresidential Gross Rent, Effective Gross Rent, bad debt expense
+
+#create new normalized fields : keep original columns, add new col values
+#input formula ~ .x / units, .names = "{col}_du")
+
+joinedData <- joinedData %>% mutate(across(.cols = c(RENT_REV_GROSS:TOTAL_VACANCIES, EFF_RES_GRENT,EFF_NONRES_GRENT,EFF_GROSSRENT, bad_debt_ex), .fns = ~ round(.x/joinedData$units,2), .names = "{.col}_byUnit"))
+
+```
+
+```{r, include=FALSE}
+#----Section: Residential Gross Rent per Unit per Month ---- divide by 12
+joinedData$EFF_RES_GRENT = round(joinedData$EFF_RES_GRENT/12, 2)
+
+```
+
+
+
+```{r, include=FALSE}
+#Revert 0 values to NA for graphs
+
+joinedData$RENT_REV_GROSS[joinedData$RENT_REV_GROSS == 0] <- NA
+joinedData$TENANT_ASSIST_PYMT[joinedData$TENANT_ASSIST_PYMT == 0] <- NA
+joinedData$VACANCIES_APARTS[joinedData$VACANCIES_APARTS == 0] <- NA
+joinedData$RENT_REV_ST_COMM[joinedData$RENT_REV_ST_COMM == 0] <- NA
+joinedData$VACANCIES_ST_COMM[joinedData$VACANCIES_ST_COMM == 0] <- NA
+```
+
+
+
+```{r, include=FALSE}
+#----Section: Task Outputs----
+
+#1. Count of the total number of projects in your analysis sample (meeting all the filtering and join conditions above), and the total number of projects with > 0 bad debt expense.
+
+#Total Number of Projects = 373
+
+#Total Number of Projects with bad debt expense > 0  = 355
+#print(nrow(filter(joinedData, bad_debt_ex > 0)))
+
+#positiveBDE_proj = filter(joinedData, bad_debt_ex > 0)
+
+```
+
+
+
+```{r, include=FALSE}
+# ---Graph Preprocessing---
+#Redefine program type as 'other' for any program with < 10 projects
+
+#Below, we create another dataframe where we alter program name to 'other' if and only if the total number of projects in a particular program is < 10
+other_programs <- joinedData %>%
+  group_by(program_type) %>%
+  summarize(num_prog_type = n()) %>%
+  left_join(joinedData, by = "program_type") %>%
+  mutate(new_program_type = ifelse(num_prog_type < 10, "Other", program_type)) 
+
+#See how many unique program we have, not including other/regardless of how many projects per program
+all_progCount <- joinedData %>%
+  group_by(program_type) %>%
+  summarize(num_prog_type = n()) 
+
+#other_progCount <- select(other_programs, c(new_program_type, updated_prog_count))
+
+#checkFiltered <- other_programs %>% distinct(program_type)
+
+
+```
+
+```{r, include=FALSE}
+#Only includes programs with more than 10 projects
+#filteredProg <- other_programs %>%
+  #filter(num_prog_type >= 10)
+
+#checkFiltered <- filteredProg %>% distinct(program_type)
+
+#32 projects that all individually belong to a group with < 10 projects.
+#501(c)(3)
+#80/20
+#City 8A
+#HAC
+#MIRP
+#Mix & Match
+#Mixed Income
+#ModRehab
+#Section 8
+#Servicing Only
+
+```
+
+
+***
+
+# Introduction {.tabset} 
+
+This analysis of HDC's 2021 financial statement and bad debt expense data explores if there is a correlation between bad debt and rental income, vacancy, and or a building’s financial health. A building's financial health is measured by the debt service coverage ratio (DSCR), defined as net operating income divided by debt service. Generally, we prefer that buildings have a DSCR > 1.15 or DSCR > 1.2; this tells us they can pay its full mortgage bill.A DSCR < 1 raises concern, as it likely indicates a building will not be able to pay it full mortgage bill. In total, we utilize 373 active projects that submitted data in 2021. 
+
+Analysis Agenda
+----------------
+<br/>
+Part I  displays a Histogram of bad debt expense per unit. 
+ <br/>  <br/>
+Part II displays Boxplots of Bad Debt Expense/Unit by Project Based Rental Assistance Status, Program Type, and Occupancy Type
+ <br/>  <br/>
+Part III displays Scatterplots of Effective Gross Rent/Unit, Effective Residential Gross Rent/Unit, Total Vacancies/Unit, DSCR1, DSCR2 versus Bad Debt Expense
+
+ 
+ <br/>
+
+ 
+ <br/>
+ 
+
+
+***
+
+
+
+# Part One: Histogram of Bad Debt Expense/Unit
+
+
+```{r fig.align='left', echo=FALSE,}
+#----Section: Task Outputs----
+
+#2. Histogram of bad debt expense per unit. (Depending on how many projects report a positive bad debt expense, you might need to exclude projects with bad debt expense <= 0 to make the graph easier to interpret.) Note: use all projects, including the 18 projects with negative BDE
+
+#Info for graphing purposes
+bde_hist_quant = array(quantile(joinedData$bad_debt_ex_byUnit, probs = c(0, .05, .95,1)))
+
+minval = bde_hist_quant[1]
+percent5 = bde_hist_quant[2]
+percent95 = bde_hist_quant[3]
+maxval = bde_hist_quant[4]
+startpoint = round(minval, 0)
+endpoint = maxval 
+
+#Rankcols consists of the percentile rank of bad debt ex values as well as percentile rank of DSCR1, we will also calculate the diff to see if there is a relationship
+rankCols <- joinedData %>%
+  mutate(bdeRank = percent_rank(bad_debt_ex_byUnit)) %>%
+  mutate(dscrRank = percent_rank(DSCR1)) 
+#We will graph both the bde and dscr values (by unit) as well as their percentile ranks to see if there is a correlation
+
+#debt service coverage ratio
+rankCols = subset(rankCols, select =c(PROJ_NAME, bad_debt_ex_byUnit, bdeRank, dscrRank) )
+
+rankCols$dscrRank = rankCols$dscrRank*100
+rankCols$bdeRank = rankCols$bdeRank*100
+#testing to see which endpoints/percentile rank works best for graph
+#rankCols = filter(rankCols, bad_debt_ex_byUnit >= 1100) 
+
+#We are using the 95 percentile val, only 5% is higher, so 
+#Condition (in terms of bde): if the largest number is 2x larger than 95 percentile value, we will set our end point as the 95th percentile value
+if(maxval >= (2*percent95)){endpoint = percent95}
+#Condition: if the abs min value is 2x larger than the abs of the 5th percentile value, we will set our start point as the 5th percentile value
+if(abs(minval) >= abs((2*percent5))  ){startpoint = round(percent5, 0)}
+
+#Ideally, we would want to have at least 5 intervals for graphing purposes. To calculate intervals, we can divide our graph endpoint value by 5. Since we deal with decimals, we can take the nearest whole number
+intervals = round(endpoint/5,0)
+
+#Condition: we want to include 0 in our graph intervals, so we must change our interval value accordingly 
+if(startpoint<0){intervals = abs(startpoint)
+}else{ #greater that zero 
+  startpoint = 0}
+
+
+#min value: -672.46
+bde_hist = 
+  ggplot(data = joinedData, aes(x = bad_debt_ex_byUnit)) + 
+  geom_histogram(color = "black", fill = "dodgerblue3", binwidth = 33, alpa = 0.7)  + 
+  labs(title = "Bad Debt Expense/Unit", x = "Bad Debt Expense", y = "Number of HDC Projects", caption = paste("Excludes ",nrow(filter(joinedData, bad_debt_ex_byUnit > endpoint))," HDC Projects with bde > $", round(endpoint, 2), sep = "")) + 
+  geom_vline(aes(xintercept = median(bad_debt_ex_byUnit)), linetype = "dashed", size = 0.6) +
+  scale_x_continuous(breaks = seq(startpoint, endpoint, intervals),lim = c(startpoint, endpoint),  
+  labels=scales::dollar_format()) +
+  scale_y_continuous(breaks = seq(0, 20, 5), lim = c(0, 20)) + 
+  theme_minimal() + 
+  theme(axis.title.y = element_text(margin = margin(t = 0, r = 15, b = 0, l=0))) 
+
+
+paste("The Median of Bad Debt Expense/Unit is $", median(joinedData$bad_debt_ex_byUnit), sep = "")
+#Display Histogram
+bde_hist
+
+# Number of Projects that were not accounted for in our graph
+#print(nrow(filter(positiveBDE_proj, bad_debt_ex > endpoint))
+
+#373 total projects: 355 have positive bde, 4 projects have bde > 2000 so we have 351 projects left, and 6 were removed, so our graph only accounts for 345 HDC projects
+
+#filters out 5% data points that are higher than the 95th percentile rank
+#ggplot calls for each graph
+#have a caption that gets nrow of 
+#create diff df, run func, have caption ex 
+
+ 
+#hist_table_info  %>%
+  #arrange(Year) %>%
+  #mutate(' Difference in Medians ' = Median - first(Median),' Percent Change in Medians ' = round (100 * (Median - first(Median))/first(Median), 2))
+
+#hist_table_info
+
+
+```
+
+
+
+
+ 
+
+
+
+```{r}
+#----Section: Scatter plots of bde values and dscr1
+#
+#Scatterplot of DSCR1 (note: this is NOI / annual mortgage payments for all mortgages) vs. bad debt expense per unit.
+dscr_bde <- rankCols %>%
+  ggplot(aes(x = bdeRank, y = dscrRank)) + 
+  #fill = "dodgerblue3"
+  geom_point() +
+  scale_color_manual(values=c('light blue','dark Gray')) +
+  scale_y_continuous(breaks = seq(0, 100, 20),lim = c(0, 100)) +
+  scale_x_continuous(breaks = seq(0, 100, 20),lim = c(0,  100) ) +
+
+  #geom_smooth(method = "lm", se = FALSE) + #linear regression for best fit line
+  labs(title = "BDE Percentile Rank vs. DSCR1 Percentile Rank ", x = "BDE/Unit", y = "DSCR1/Unit") +
+  theme_minimal() + 
+  theme(legend.position="none",axis.title.y = element_text(margin = margin(t = 0, r = 15, b = 0, l=0))) 
+
+#Display Graph
+#dscr_bde
+#lm()
+#-4/4
+
+```
+
+# Part Two: Boxplot of Bad Debt Expense/Unit by Project Based Rental Assistance Status, Program Type, and Occupancy Type
+
+
+```{r}
+#----Section: Task Outputs----
+#5. Boxplot of bad debt expense per unit by PBRA (project based rental assistance) status. (We expect bad debt to be lower for projects with PBRA.)
+
+
+
+bde_by_PBRA <- joinedData %>%
+  ggplot(aes(y = bad_debt_ex_byUnit, x = as.factor(pbra), fill = pbra)) + 
+  #fill = "dodgerblue3"
+  geom_boxplot(alpha = 0.6) +
+  scale_y_continuous(breaks = seq(startpoint, endpoint, intervals),lim = c(startpoint-50, endpoint), labels=scales::dollar_format()) + 
+  labs(title = "Bad Debt Expense/Unit by Project Based Rental Assistance", x = "Project Based Rental Assistance Status", y = "Bad Debt Expense/Unit", caption = paste("Excludes ",nrow(filter(joinedData, bad_debt_ex_byUnit > endpoint))," HDC Projects with bde > $", round(endpoint, 2), sep = "")) +
+  theme_minimal() + 
+  theme(axis.title.y = element_text(margin = margin(t = 0, r = 15, b = 0, l=0))) 
+
+#Rename Title PBRA / elaborate 
+bde_by_PBRA
+
+# plot info 
+# ddply(joinedData,summarise,median=median(bad_debt_ex_by_Unit))
+
+```
+
+
+
+
+
+```{r, include==FALSE}
+#----Section: Task Outputs----
+
+#3. Boxplot of bad debt expense per unit by program type.
+
+
+#Checking Programs with only 1 hdc project
+#Servicing Only 
+#servOnly = filter(joinedData, program_type == "Servicing Only")
+#servOnly$bad_debt_ex #215.64
+#city8A = filter(joinedData, program_type == "City 8A")
+#city8A$bad_debt_ex #213.07
+#joinedData = filter(joinedData, program_type != "Servicing Only")
+#joinedData = filter(joinedData, program_type != "City 8A")
+#sort by median 
+
+#reorder before
+other_programs$new_program_type = with(other_programs, reorder(new_program_type , bad_debt_ex_byUnit, median , na.rm=TRUE))
+#with(other_programs, reorder(new_program_type , bad_debt_ex_byUnit, median , na.rm=TRUE))
+#reorder(other_programs$new_program_type , other_programs$bad_debt_ex_byUnit, median , na.rm=TRUE)
+#aes( x = reorder(new_program_type, bad_debt_ex_byUnit, median, na.rm = TRUE),                    
+#with negative bde 
+all_bde_byProgram <- other_programs %>%
+  #ggplot(all_bde_byProgram%>% arrange(region, desc(value)) )
+  # aes( x = reorder(new_program_type, bad_debt_ex_byUnit, median, na.rm = TRUE),
+  ggplot( aes( x =  bad_debt_ex_byUnit, y = as.factor(new_program_type), fill = new_program_type) ) + 
+  #fill = "dodgerblue3"
+  geom_boxplot( alpha = 0.7) +
+  scale_x_continuous(breaks = seq(startpoint-100, endpoint, intervals),lim = c(startpoint-100, endpoint), labels=scales::dollar_format()) +
+  labs(title = "Bad Debt Expense/Unit by Program Type", y = "Program Type", x = "Bad Debt Expense/Unit", caption = paste("Excludes program types with < 10 projects and ",nrow(filter(joinedData, bad_debt_ex_byUnit > endpoint))," projects with bde > $", round(endpoint, 2), sep = "")) +
+  theme_minimal() + 
+  theme(legend.position="none", axis.title.y = element_text(margin = margin(t = 0, r = 15, b = 0, l=0))) 
+
+all_bde_byProgram
+
+```
+
+
+
+```{r}
+#----Section: Task Outputs----
+#4. Boxplot of bad debt expense per unit by occupancy type
+
+#reorder before
+#joinedData$occupancy_type = with(joinedData, reorder(occupancy_type , bad_debt_ex_byUnit, median, na.rm=TRUE))
+
+bde_byOcc <- joinedData %>%
+  ggplot(aes(y = bad_debt_ex_byUnit, x = as.factor(occupancy_type), fill = occupancy_type)) + 
+  #fill = "dodgerblue3"
+  geom_boxplot(alpha = 0.6) +
+  scale_y_continuous(breaks = seq(-200, 1400, 200),lim = c(-200, 1400), labels=scales::dollar_format()) + 
+  labs(title = "Bad Debt Expense/Unit by Occupancy Type", x = "Occupancy Type", y = "Bad Debt Expense/Unit", caption = paste("Excludes ",nrow(filter(joinedData, bad_debt_ex_byUnit > endpoint))," HDC projects with bde > $", round(endpoint, 2), sep = "")) +
+  theme_minimal() + 
+  theme(legend.position="none",axis.title.y = element_text(margin = margin(t = 0, r = 15, b = 0, l=0))) 
+
+bde_byOcc
+```
+
+```{r}
+#----Section: Task Outputs----
+#5. Boxplot of bad debt expense per unit by PBRA (project based rental assistance) status. (We expect bad debt to be lower for projects with PBRA.)
+
+
+bde_by_PBRA <- joinedData %>%
+  ggplot(aes(y = bad_debt_ex_byUnit, x = as.factor(pbra), fill = pbra)) + 
+  #fill = "dodgerblue3"
+  geom_boxplot(alpha = 0.6) +
+  scale_y_continuous(breaks = seq(-200, 1400, 200),lim = c(-200, 1400), labels=scales::dollar_format()) + 
+  labs(title = "Bad Debt Expense/Unit by Project Based Rental Assistance (PBRA)", x = "PBRA", y = "Bad Debt Expense/Unit", caption = paste("Excludes ",nrow(filter(joinedData, bad_debt_ex_byUnit > endpoint))," HDC projects with bde > $", round(endpoint, 2), sep = "")) +
+  theme_minimal() + 
+  theme(legend.position="none",axis.title.y = element_text(margin = margin(t = 0, r = 15, b = 0, l=0))) 
+
+#Display
+#bde_by_PBRA
+
+
+
+```
+
+# Part Three: Scatterplot of Effective Gross Rent/Unit, Effective Residential Gross Rent/Unit, Total Vacancies/Unit, DSCR1, DSCR2 versus Bad Debt Expense
+
+
+```{r}
+#----Section: Task Outputs----
+
+#6. Scatterplot of effective gross rent per unit (x) vs. bad debt expense per unit (y). (For all scatterplots, set bad debt expense to the y axis. Our outcome variable of interest typically goes on the y axis.)
+#shape = program_type, color = program_type
+#shape = pbra, color = pbra
+#Info for graphing purposes
+grossrent_quant = array(quantile(joinedData$EFF_GROSSRENT_byUnit, probs = c(0, .05, .95,1)))
+gr_minval = grossrent_quant[1]
+gr_percent5 = grossrent_quant[2]
+gr_percent95 = grossrent_quant[3]
+gr_maxval = grossrent_quant[4]
+gr_startpoint = round(gr_minval, 0)
+gr_endpoint = gr_maxval 
+
+#95 percentile val, only 5% is higher, so 
+#if max is 2x larger than 95 percentile, we will set our end point 
+if(gr_maxval >= (2*gr_percent95)){
+  gr_endpoint = gr_percent95}
+if(abs(gr_minval) >= (2*gr_percent5)){
+  gr_startpoint = round(gr_percent5, 0)
+}
+
+
+gr_intervals = round(gr_endpoint/5,0)
+if(gr_startpoint<0){
+  gr_intervals = abs(gr_startpoint)
+}else{
+  #greater that zero
+  gr_startpoint = 0
+}
+
+
+
+
+egr_bde <- joinedData %>%
+  ggplot(aes(x = EFF_GROSSRENT_byUnit, y = bad_debt_ex_byUnit)) + 
+  #, fill = pbra
+  #fill = "dodgerblue3"
+  geom_point() +
+ # scale_color_manual(values=c('light blue','dark Gray')) +
+  scale_y_continuous(breaks = seq(0, 1500, 500),lim = c(0, 1500), labels=scales::dollar_format()) +
+ scale_x_continuous(breaks = seq(0, gr_endpoint, gr_intervals),lim = c(0, gr_endpoint), labels=scales::dollar_format()) +
+  geom_smooth(method = "lm", se = FALSE,colour="black") + #linear regression for best fit line
+  labs(title = "Effective Gross Rent vs. Bad Debt Expense", x = "Effective Gross Rent/Unit", y = "Bad Debt Expense/Unit", caption = paste("Excludes ", nrow(filter(joinedData, EFF_GROSSRENT_byUnit > gr_endpoint))," HDC projects with Effective Gross Rent > $", round(gr_endpoint, 2), sep = "")) +
+  theme_minimal() + 
+  theme(legend.position="none",axis.title.y = element_text(margin = margin(t = 0, r = 15, b = 0, l=0))) 
+
+#Display Graph
+egr_bde
+#lm(bad_debt_ex ~ EFF_GROSSRENT, joinedData)
+#get rid out of outlier 
+#note of the impact of rem outliers
+#redefine prog type as 'other' for progs w. < 10 proj
+
+```
+
+
+
+```{r}
+#----Section: Task Outputs----
+
+#7. Scatterplot of effective residential gross rent per unit vs. bad debt expense per unit. (We want to see if the story changes when we ignore nonresidential rent.)
+
+
+resGR_bde <- joinedData %>%
+  ggplot(aes(x = EFF_RES_GRENT_byUnit, y = bad_debt_ex_byUnit)) + 
+  #, color = pbra
+  #fill = "dodgerblue3"
+  geom_point() +
+  #scale_color_manual(values=c('light blue','dark Gray')) +
+  scale_y_continuous(breaks = seq(0, 1500, 300),lim = c(0, 1500), labels=scales::dollar_format()) +
+  scale_x_continuous(breaks = seq(0, 50000, 10000),lim = c(0,  50000), labels=scales::dollar_format()) +
+
+
+  
+  geom_smooth(method = "lm", se = FALSE,colour="black") + #linear regression for best fit line
+  labs(title = "Effective Residential Gross Rent vs. Bad Debt Expense Per Unit", x = "Effective Residential Gross Rent/Unit", y = "Bad Debt Expense/Unit",caption = paste("Excludes ",nrow(filter(joinedData, EFF_RES_GRENT_byUnit > 50000))," HDC projects with Effective Residential Gross Rent/Unit > $", round(50000, 2), sep = "")) +
+  theme_minimal() + 
+  theme(legend.position="none", axis.title.y = element_text(margin = margin(t = 0, r = 15, b = 0, l=0))) 
+
+#Display Graph
+resGR_bde
+#lm()
+
+```
+
+
+
+```{r}
+#----Section: Task Outputs----
+
+#8. Scatterplot of total vacancies per unit vs. bad debt expense per unit.
+
+#joinedData$TOTAL_VACANCIES_byUnit[joinedData$TOTAL_VACANCIES_byUnit == NULL] <- 0
+joinedData$TOTAL_VACANCIES_byUnit[joinedData$TOTAL_VACANCIES_byUnit == 0] <- NA
+joinedData$TOTAL_VACANCIES_byUnit = abs(joinedData$TOTAL_VACANCIES_byUnit)
+
+
+vac_bde <- joinedData %>%
+  ggplot(aes(x = TOTAL_VACANCIES_byUnit, y = bad_debt_ex_byUnit)) + 
+  #fill = "dodgerblue3"
+  geom_point() +
+  #scale_color_manual(values=c('light blue','dark Gray')) +
+  scale_y_continuous(breaks = seq(0, 1000, 200),lim = c(0, 1000), labels=scales::dollar_format()) +
+  scale_x_continuous(breaks = seq(0, 1000, 200),lim = c(0,  1000)) +
+
+
+
+ 
+  geom_smooth(method = "lm", se = FALSE,colour="black") + #linear regression for best fit line
+  labs(title = "Total Vacancies vs. Bad Debt Expense Per Unit", x = "Total Vacancies/Unit", y = "Bad Debt Expense/Unit", caption = paste("Excludes ", nrow(filter(joinedData, TOTAL_VACANCIES_byUnit > 1000))," HDC projects with Total Vacancies > ", 1000, sep = "")) +
+  theme_minimal() + 
+  theme(legend.position="none", axis.title.y = element_text(margin = margin(t = 0, r = 15, b = 0, l=0))) 
+
+#Display Graph
+vac_bde
+#lm()
+#mux vac by -1 
+#include dollar sign 
+#perc of GROSS POT RENT 
+#
+
+```
+
+
+
+
+```{r}
+#----Section: Task Outputs----
+
+#9. Scatterplot of DSCR1 (note: this is NOI / annual mortgage payments for HDC mortgages only) vs. bad debt expense per unit. 
+
+#Note: we like to see DSCR > 1.15 or 1.2, depending on how the denominator, debt service, is defined. DSCR < 1 means that a building likely can’t pay its full mortgage bill.
+
+
+joinedData$DSCR <- abs(joinedData$DSCR1)
+joinedData$DSCR1[joinedData$DSCR1 == 0] <- NA
+
+dscr1_bde <- joinedData %>%
+  ggplot(aes(x = DSCR1, y = bad_debt_ex_byUnit)) + 
+  #fill = "dodgerblue3" 
+  #aes(color= new_program_type))
+  geom_point() +
+  #scale_color_manual(values=c('light blue','dark Gray')) +
+  scale_y_continuous(breaks = seq(0, 1000, 200),lim = c(0, 1000), labels=scales::dollar_format()) +
+  scale_x_continuous(breaks = seq(0, 4, 1),lim = c(0,  4) ) +
+  geom_smooth(method = "lm", se = FALSE,colour="black") + #linear regression for best fit line
+  labs(title = "Debt Service Coverage Ratio 1 vs. Bad Debt Expense Per Unit", x = "DSCR1/Unit", y = "Bad Debt Expense/Unit", caption = paste("Excludes ", nrow(filter(joinedData, DSCR1 > 4))," HDC projects with DSCR1 > ", 4," and bde > $1000", sep = "")) +
+  theme_minimal() + 
+  theme(legend.position="none",axis.title.y = element_text(margin = margin(t = 0, r = 15, b = 0, l=0))) 
+
+#Display Graph
+#dscr1_bde
+#lm()
+#HDC Mort, fin health
+
+
+#Display Graph
+dscr1_bde
+```
+
+
+```{r}
+#----Section: Task Outputs----
+#HDC + More
+#10. Scatterplot of DSCR2 (note: this is NOI / annual mortgage payments for all mortgages) vs. bad debt expense per unit.
+#DSCR  NOI / annual mortgage payments for all mortgages. When underwriting a project, we expect a ** increase/decrease in bde per year. 
+
+dscr2_bde <- joinedData %>%
+  ggplot(aes(x = DSCR2, y = bad_debt_ex_byUnit)) + 
+  #fill = "dodgerblue3"
+  geom_point() +
+  #scale_color_manual(values=c('light blue','dark Gray')) +
+  scale_y_continuous(breaks = seq(0, 1000, 200),lim = c(0, 1000), labels=scales::dollar_format()) +
+  scale_x_continuous(breaks = seq(0, 4, 1),lim = c(0,  4) ) +
+
+  geom_smooth(method = "lm", se = FALSE,colour="black") + #linear regression for best fit line
+  labs(title = "Debt Service Coverage Ratio 2 vs. Bad Debt Expense Per Unit", x = "DSCR2/Unit", y = "Bad Debt Expense/Unit", caption = paste("Excludes ", nrow(filter(joinedData, DSCR2 > 4))," HDC projects with DSCR2 > ", 4, "and bde > $1000",sep = "")) +
+  theme_minimal() + 
+  theme(legend.position="none",axis.title.y = element_text(margin = margin(t = 0, r = 15, b = 0, l=0))) 
+
+#Display Graph
+dscr2_bde
+#lm()
+#-4/4
+
+```

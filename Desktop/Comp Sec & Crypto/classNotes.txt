@@ -1,0 +1,267 @@
+***class Two***
+
+---------------
+ID Protocols
+---------------
+
+Security Policy:
+	* Valid card should open door 
+	* You cannot open the door w/o the ID
+	* Exception for emergency services 
+	* can always exit 
+	* revocation
+	* cannot clone valid card
+	* lockdown
+	* Access control policy (ACL)
+
+-------------------
+Security Mechanisms
+-------------------
+
+	* ID Protocols 
+	* cards
+	* biometrics
+	* guards
+	* locks on door / keys 
+	*
+
+-------------------
+Reverse Engineering 
+-------------------
+	*Specific Example: Key Protocol
+		- given a key and an id 
+	*Possible attacks
+		- you can use a brute force to guess the key 
+			solution: use a large key
+		- observe transmission, replay attacks
+		- physically extract key 
+			tamper - resistant hardware
+
+	----------------------------
+	Challenge-Response Protocols
+	----------------------------
+	Properties of function f:
+		- cryprtographic functions
+		- one-way function 
+		- cannot compute f(k,n) given n, also many ( n(i), F(k,n(i) ))
+		- pseudoRandom would have this property 
+		- has to have a large output 
+
+
+	---------------------
+	Rolling Code Protocol
+	---------------------
+		F(k,t)
+			t: can represent time or a counter 
+
+	-----------------------
+	Cryptographic Functions
+	-----------------------
+		- use lambda 
+		- Adversary 
+			- makes many queries 
+			3 - outputs some value k'
+					- wins iff k'== k
+					negligible(lamda) = 0(1/2^lamda)
+			- F is a one way function iff no PPT Adversary wins the game with non-negligible probability 
+				- key is finite, so they can win the game if they "guess", if they cannot make any queries they can always just guess the key
+				PPT: Probablistic Polynomial Time
+				- the amount of work an adversary can do is a polynomail function and it is to the power of lamda
+				r is random choice
+
+
+
+
+		1 - Challenger 
+			- creates k 
+
+------------------------
+Pseudo Random Challenger (PRF)
+------------------------
+
+
+***Class Three***
+
+Lecture 3: 1/30/23
+-------------------------------------------------------------------------------------
+---------------
+Hash Motivation: Outsourced Storage 
+---------------
+
+Hash function security properties:
+-----------------------------------
+	Second pre-image resistance (ZPIR)
+		- given: H(), x
+		- Find: x' (not equal) x such that H(x') = H(x)
+
+Collision - Resistance Game (GR):
+---------------------------------
+	- Given: H()
+	- Find x, x' such that x (not equal) x' 
+
+
+Collision - Resistance is "impossible"
+	Reduces the pigeon hole principle 
+	domain {0,1}
+	range {0,1}^ t
+	collisions exists if |domain| > |range|
+
+	
+	Pigeon Hole Principle:
+	---------------------
+
+
+Birthday Paradox/Principle :
+--------------------------
+N possible outcomes 
+m samples
+(m/2) pairs of samples (m/2) = m(m-1)/2 = o(m^2)
+
+
+-----------------
+Expected a repeated  outcome (collision)
+after m = o(square root of n) sample
+
+
+SHA-1: Secure Hash Algorithm 
+	- SHA-I is commonly used to check the integrity of files 
+	- any data ---> a 160 - bit hash value 
+
+Practical Hash Functions:
+-------------------------
+	Algorithm: MD5
+	Era: early 90s
+	Output size:  128-bits of output, 64-bits of security to find the collision 
+
+	Algorithm: SHA-1
+	Era: late 90s
+	Output Sizw: 160-bits
+
+	for both MD5 and SHA-1, collisons exisrs, collision findings is really easy now
+
+	Algorithm: SHA-256/SHA-512
+	Era: Early 00s 
+	Output Sizw: 256-512-bits
+
+	Algorithm: SHA-3
+	"keccak"
+	Era: Early 10s
+	Output Sizw: 250/512-bits
+
+------------------------------
+Authenticated Data Structures
+------------------------------
+File outsourcing with multiple files 
+	Example: you are going to file outsource multiple files
+	request file i, and the server will return that fi
+
+	Solution #1: store the hash of each file
+	store 	 hi = H(fi) for each file 
+	problem: o(k) storage 
+
+
+	Solution #1: storage h = H(f1|| f2||f3||....||fk)
+	problem: you would have to redownload all the files to check if you got one file correctly
+	o(k) communication to check one file 
+
+
+	Cryptographic Solution: Merkle Tree: 
+	x1 = h(f1)
+	
+
+
+
+-------------------------------------------------------------------------------------
+
+								*** Class Four ***
+-------------------------------------------------------------------------------------
+
+----------------------
+Monoalphabetic Cipher
+----------------------
+
+key is a permutation over {A,...,Z}
+|K| = 26!
+a common trick that people use is that you would encrypt (BAG) --> ACD
+you can create your own system 
+
+
+----------------------
+Polylphabetic Cipher
+----------------------
+
+Example: take plain text (your message)
+m (jose is my hero) and your key is a word, that you can repeat the key as many times as you want/need to, and then you can use addition (mod 26) and then you can use whatver the sum is ( and write it down as the letter that it corresponds to )
+
+	- the same letter and number will not always be encrypted to the same letter/number
+
+Attack: guess the period (if you do not know the period), this is just the key length, and then divide the cipher text letters and do a freq analysis 
+
+------------
+One-time-pad
+------------
+idea: choose a key that is longer than your message so that there are no repeats
+	choose a random key |k| >= |m|  s.t (no repeats)
+	i.e you choose a four letter key to represet your 4 letter message, 
+					jose
+					VBGG
+					-----
+					DPYK
+				(addition in mod 26)
+
+
+
+observation: given a ciphertext, all plain texts are possible and equally likely 
+			unconditional security 
+
+
+------------
+Two-time-pad
+------------
+mod 26 addition ex
+Cons: if you know one message than you know the other message
+Impact: learning m1 reveals m2
+
+
+-----------------------------
+Real world OTP: Stream Cipher
+-----------------------------
+
+
+Encrypt (k,m) = m mod PRG (k)
+where R is a pseudorandom generator 
+
+As secure as OTP if PRG is indistinguishable from random
+
+	indistinguishable from random is just like a PRF (pseduorandom function)
+	the generator makes an infinite amount of output whereas function is finite
+	an alg that can generate next bit forever
+	PRG{0,1} * 
+
+
+---------------------
+Security Game for PRG
+---------------------
+
+we have a...
+
+----------
+challenger 
+----------
+k <--- keyGen ()
+b <----- {0,1}
+
+
+			if b = 0: random bits
+			if b = 1: PRG(k)
+			---------------------->
+											output b'
+											win if b = b'
+
+----------
+Adversary 
+----------
+
+
+
+
